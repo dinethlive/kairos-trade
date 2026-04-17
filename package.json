@@ -5,5 +5,9 @@
   "type": "module",
   "bin": {
     "kairos-trade": "./src/index.tsx"
+  },
+  "scripts": {
+    "start": "bun src/index.tsx",
+    "dev": "bun --watch src/index.tsx"
   }
 }
