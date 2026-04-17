@@ -1,0 +1,9 @@
+{
+  "name": "kairos-trade",
+  "version": "0.1.0",
+  "description": "Tick-based adaptive auto-trading CLI for Deriv synthetic indices",
+  "type": "module",
+  "bin": {
+    "kairos-trade": "./src/index.tsx"
+  }
+}
