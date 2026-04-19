@@ -2,6 +2,8 @@
 
 # kairos-trade
 
+<img src="./__REPO-SCREENSHOTS__/PREVIEW_KT.png" alt="kairos-trade REPL preview" width="900" />
+
 **Tick based adaptive auto trading CLI for Deriv synthetic indices.**
 
 A Bun + Ink (React in terminal) REPL that streams ticks over WebSocket, detects adaptive price jump signals using three parallel statistical estimators, and trades `CALL` / `PUT` contracts of configurable tick duration.
@@ -92,21 +94,21 @@ The engine runs per tick on `delta = |quote - prevQuote|` and maintains three es
 
 ```mermaid
 flowchart TD
-  Q[tick quote] --> D[delta = abs(quote - prev)]
-  D --> W[Welford rolling var<br/>window 100]
-  D --> E[EWMA span 20<br/>alpha = 2 / (span+1)]
-  D --> C[CUSUM two sided<br/>k = 0.5 sigma, h = 4 sigma]
-  W --> TH1[mu + k_sens * sigma]
-  E --> TH2[mu + k_sens * sigma]
-  TH1 --> MIN{{min}}
+  Q["tick quote"] --> D["delta = |q - q_prev|"]
+  D --> W["Welford rolling var<br/>window = 100"]
+  D --> E["EWMA<br/>span = 20, &alpha; = 2 / (span + 1)"]
+  D --> C["CUSUM two sided<br/>k = 0.5&sigma;, h = 4&sigma;"]
+  W --> TH1["&mu; + k&middot;&sigma;"]
+  E --> TH2["&mu; + k&middot;&sigma;"]
+  TH1 --> MIN{{"min"}}
   TH2 --> MIN
-  MIN --> FIRE[delta > threshold?]
-  C --> REGIME[regime shift detected]
-  FIRE --> SCORE[SignalScorer]
+  MIN --> FIRE{"delta exceeds threshold?"}
+  C --> REGIME["regime shift"]
+  BW["Bollinger bandwidth<br/>window = 50"] --> SQZ["squeezeActive"]
+  FIRE --> SCORE["SignalScorer"]
   REGIME --> SCORE
-  BW[Bollinger bandwidth<br/>window 50] --> SQZ[squeezeActive]
   SQZ --> SCORE
-  SCORE --> OUT[(Signal, strength 1-3)]
+  SCORE --> OUT[("Signal<br/>strength 1..3")]
 ```
 
 **Scoring formula:**
