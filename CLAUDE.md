@@ -40,3 +40,7 @@ Slash commands (see `src/commands/registry.ts`):
 - `/clear`, `/help [cmd]`, `/quit`.
 
 Input: `/` triggers an autocomplete menu (filtered by prefix, up/down to navigate, Tab to complete, Enter to submit). Command history (↑/↓ when menu isn't visible) is in-memory only. `Ctrl+C` initiates a graceful shutdown.
+
+## Architecture
+
+Data flows in one direction: **Deriv WS → Trader → statistical engine → Zustand store → Ink UI**. The UI never talks to the WS; it only subscribes to store state. Slash-command handlers are the only inbound write path from UI → runtime, and they all go through `BotController` (`src/trading/controller.ts`), which owns the Trader instance.
