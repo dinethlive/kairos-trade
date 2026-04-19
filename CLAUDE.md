@@ -78,3 +78,10 @@ Data flows in one direction: **Deriv WS → Trader → statistical engine → Zu
 
 - **`src/cli/args.ts`** — hand-rolled `--flag value` / `--flag=value` parser. Every flag has an env-var fallback. Throws `ArgParseError` with a message shown above `helpText()` on invalid input. Flags set *session defaults* only; the REPL opens regardless of whether `--token` was provided.
 
+### Extending
+
+- New signal features → extend `ThresholdResult` in `adaptiveThreshold.ts` and consume in `signalScorer.ts`. Keep warm-up semantics intact (`isWarming` gates firing).
+- New tunables → add a constant to `src/constants/api.ts`, an env var + CLI flag in `src/cli/args.ts`, a field on `TraderConfig`, and a matching slash command in `src/commands/registry.ts` (calls `ctx.controller.updateConfig({ ... })`). `updateConfig` takes care of both the hot-swap path and the non-running path.
+- New slash commands → append to `COMMANDS` in `registry.ts`. Aliases go in the same entry. The `/`-menu picks them up automatically. Commands that accept an enum/boolean and want arrow-key UX should branch on empty-args and call `ctx.openMenu({ ... })`.
+- New trade types → extend `DerivWS.buyContract` params and the `TradeContractType` union in `src/types/index.ts`.
+- New transcript event kinds → extend `TranscriptKind` in `types` and `tagFor` in `Transcript.tsx`.
