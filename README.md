@@ -1,8 +1,8 @@
 <div align="center">
 
-# kairos-trade
-
 <img src="./__REPO-SCREENSHOTS__/PREVIEW_KT.png" alt="kairos-trade REPL preview" width="900" />
+
+# kairos-trade
 
 **Tick based adaptive auto trading CLI for Deriv synthetic indices.**
 
