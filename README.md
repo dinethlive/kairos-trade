@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="./__REPO-SCREENSHOTS__/PREVIEW_KT.png" alt="kairos-trade REPL preview" width="900" />
-
 # kairos-trade
 
 **Tick based adaptive auto trading CLI for Deriv synthetic indices.**
@@ -13,6 +11,10 @@ A Bun + Ink (React in terminal) REPL that streams ticks over WebSocket, detects 
 ![ui](https://img.shields.io/badge/ui-ink%20%2B%20react-61dafb?logo=react&logoColor=black)
 ![state](https://img.shields.io/badge/state-zustand-764abc)
 ![license](https://img.shields.io/badge/license-MIT-brightgreen)
+
+<br/>
+
+<img src="./__REPO-SCREENSHOTS__/PREVIEW_KT.png" alt="kairos-trade REPL preview" width="900" />
 
 </div>
 
