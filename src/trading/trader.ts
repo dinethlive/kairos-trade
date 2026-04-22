@@ -2,7 +2,7 @@ import { DerivWS, type ContractUpdate, type TickPayload, type TransactionPayload
 import { RotationScheduler, pickFuzzDuration } from '../engine/rotation';
 import { SENSITIVITY_LEVELS } from '../constants/sensitivity';
 import { useStore } from '../state/store';
-import type { ClosedTrade } from '../types';
+import type { ClosedTrade, SniperPhase } from '../types';
 import type { TraderConfig } from './config';
 import { EngineStates, type EngineState } from './engineStates';
 import { MartingaleController } from './martingale';
@@ -15,6 +15,7 @@ export type {
   MartingaleConfig,
   RotationConfig,
   FuzzDurationConfig,
+  SniperConfig,
   TraderConfig,
 } from './config';
 
@@ -50,6 +51,13 @@ export class Trader {
   // timer fires after stop and writes spurious trade-close events into the
   // store (and bumps martingale state for a trade nobody's running).
   private dryRunTimers = new Set<ReturnType<typeof setTimeout>>();
+  // Sniper sim timers. Cancelled on /stop for the same reason as dryRunTimers —
+  // a post-stop resolve would corrupt the sniper streak counter.
+  private simTimers = new Set<ReturnType<typeof setTimeout>>();
+  // Sniper streak counter. Increments on each sim loss; resets on sim win or
+  // after a real-promotion closes. When consecLosses >= lossThreshold at
+  // signal time, the next signal is promoted to a real buy.
+  private sniperConsecLosses = 0;
   // Contracts already open on the account when /start ran. Anything in this
   // set is someone else's (web UI, prior session) and must never be adopted
   // into our bookkeeping during a reconnect reconcile.
@@ -82,17 +90,20 @@ export class Trader {
     this.executor = new TradeExecutor({
       ws: this.ws,
       mg: this.mg,
+      getConfig: () => this.config,
       getCurrency: () => this.currency,
       getCurrentSymbol: () => this.currentSymbol,
       isDryRun: () => this.config.dryRun,
       isStopped: () => this.stopped,
       openContractIds: this.openContractIds,
       dryRunTimers: this.dryRunTimers,
+      simTimers: this.simTimers,
       decrementPending: () => {
         this.pendingPlacements--;
       },
       setError: (msg) => useStore.getState().setError(msg),
       scheduleRotation: (reason) => this.scheduleRotation(reason),
+      onSniperResolved: (phase, won) => this.onSniperResolved(phase, won),
     });
     this.reconciler = new Reconciler({
       ws: this.ws,
@@ -106,6 +117,7 @@ export class Trader {
     });
 
     this.mg.pushRuntime();
+    this.pushSniperRuntime();
   }
 
   updateConfig(next: TraderConfig): void {
@@ -132,7 +144,12 @@ export class Trader {
     if (prev.rotation.enabled && !next.rotation.enabled) {
       this.rotation.reset();
     }
+    // Sniper toggled off → clear the streak so a re-enable starts fresh.
+    if (prev.sniper.enabled && !next.sniper.enabled) {
+      this.sniperConsecLosses = 0;
+    }
     this.mg.pushRuntime();
+    this.pushSniperRuntime();
   }
 
   resetMartingaleRuntime(): void {
@@ -223,8 +240,18 @@ export class Trader {
       useStore.getState().append('warn', `transaction stream unavailable: ${msg}`);
     }
 
+    // Sniper mode owns the symbol — rotation is a no-op while it's on because
+    // the sim streak has to stay on a single market for the signal to mean
+    // anything. If the user has both toggled on, we honor sniper and log it.
     const rotationOn =
-      this.config.rotation.enabled && this.config.rotation.pool.length > 0;
+      !this.config.sniper.enabled &&
+      this.config.rotation.enabled &&
+      this.config.rotation.pool.length > 0;
+    if (this.config.sniper.enabled && this.config.rotation.enabled) {
+      useStore
+        .getState()
+        .append('warn', 'sniper mode is on — ignoring rotation');
+    }
 
     // Decide which symbols to warm. With rotation, warm the entire pool in
     // parallel so later rotations are zero-latency swaps. Otherwise just the
@@ -299,6 +326,8 @@ export class Trader {
     this.stopped = true;
     for (const t of this.dryRunTimers) clearTimeout(t);
     this.dryRunTimers.clear();
+    for (const t of this.simTimers) clearTimeout(t);
+    this.simTimers.clear();
     try {
       await this.ws.forgetAll(['ticks', 'balance', 'proposal_open_contract']);
     } catch {
@@ -351,7 +380,85 @@ export class Trader {
     );
   }
 
+  private dispatchSignal(
+    signalId: string,
+    direction: 'up' | 'down',
+    spot: number,
+    duration: number,
+  ): void {
+    const sn = this.config.sniper;
+    if (!sn.enabled) {
+      void this.executor.placeTrade(signalId, direction, spot, duration);
+      return;
+    }
+    const armed = this.sniperConsecLosses >= sn.lossThreshold;
+    if (armed) {
+      // Fire real and consume the streak. The real outcome is independent of
+      // the sim history — we reset after the promotion regardless of win/loss.
+      useStore
+        .getState()
+        .append(
+          'info',
+          `sniper armed (${this.sniperConsecLosses}/${sn.lossThreshold}) · promoting to real`,
+        );
+      this.sniperConsecLosses = 0;
+      this.pushSniperRuntime();
+      void this.executor.placeTrade(signalId, direction, spot, duration, 'real');
+      return;
+    }
+    this.executor.placeSim(signalId, direction, spot, duration);
+  }
+
+  private onSniperResolved(phase: SniperPhase, won: boolean): void {
+    // If the user turned sniper off while this trade was in flight, don't
+    // retroactively touch the runtime — the off-toggle already cleared it.
+    if (!this.config.sniper.enabled) return;
+    const store = useStore.getState();
+    if (phase === 'sim') {
+      if (won) {
+        this.sniperConsecLosses = 0;
+        store.updateSniper({
+          simTrades: store.sniper.simTrades + 1,
+          simWins: store.sniper.simWins + 1,
+        });
+      } else {
+        this.sniperConsecLosses++;
+        store.updateSniper({
+          simTrades: store.sniper.simTrades + 1,
+          simLosses: store.sniper.simLosses + 1,
+        });
+      }
+    } else {
+      // Real promotion already reset the streak at fire time; keep it at 0
+      // here so a quick-fire real → loss doesn't arm the next sim-to-real.
+      this.sniperConsecLosses = 0;
+      store.updateSniper({ realTrades: store.sniper.realTrades + 1 });
+    }
+    this.pushSniperRuntime();
+  }
+
+  private pushSniperRuntime(): void {
+    const sn = this.config.sniper;
+    useStore.getState().updateSniper({
+      consecLosses: this.sniperConsecLosses,
+      armed: sn.enabled && this.sniperConsecLosses >= sn.lossThreshold,
+    });
+  }
+
+  resetSniperRuntime(): void {
+    this.sniperConsecLosses = 0;
+    useStore.getState().updateSniper({
+      consecLosses: 0,
+      armed: false,
+      simTrades: 0,
+      simWins: 0,
+      simLosses: 0,
+      realTrades: 0,
+    });
+  }
+
   private scheduleRotation(reason: string): void {
+    if (this.config.sniper.enabled) return;
     if (!this.config.rotation.enabled) return;
     if (this.config.rotation.pool.length < 2) return;
     if (this.rotationInFlight) return;
@@ -442,7 +549,7 @@ export class Trader {
         ) {
           // Reserve the slot synchronously so the next tick's gate sees it.
           this.pendingPlacements++;
-          void this.executor.placeTrade(signal.id, signal.direction, t.quote, tradeDuration);
+          this.dispatchSignal(signal.id, signal.direction, t.quote, tradeDuration);
         }
       }
     }
@@ -514,14 +621,19 @@ export class Trader {
         exitSpot: c.exit_tick ?? c.current_spot,
         closedAt: Date.now(),
         signalId: existing.signalId,
+        sniperPhase: existing.sniperPhase,
       };
       this.openContractIds.delete(c.contract_id);
       store.closeTrade(c.contract_id, closed);
+      const sniperTag = existing.sniperPhase === 'real' ? ' · SNIPER' : '';
       store.append(
         'trade-close',
-        `${closed.result.toUpperCase()} ${existing.type} ${profit >= 0 ? '+' : ''}${profit.toFixed(2)} ${this.currency} (id=${c.contract_id})`,
+        `${closed.result.toUpperCase()} ${existing.type} ${profit >= 0 ? '+' : ''}${profit.toFixed(2)} ${this.currency} (id=${c.contract_id})${sniperTag}`,
       );
       this.mg.onTradeResolved(won, profit);
+      if (existing.sniperPhase === 'real') {
+        this.onSniperResolved('real', won);
+      }
     }
   }
 }
