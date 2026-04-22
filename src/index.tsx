@@ -11,6 +11,9 @@ import {
   DEFAULT_FUZZ_DURATION_ENABLED,
   DEFAULT_FUZZ_DURATION_MIN,
   DEFAULT_FUZZ_DURATION_MAX,
+  DEFAULT_SNIPER_ENABLED,
+  DEFAULT_SNIPER_LOSS_THRESHOLD,
+  DEFAULT_SNIPER_MARTINGALE_ENABLED,
 } from './constants/api';
 
 const VERSION = '0.2.0';
@@ -71,6 +74,11 @@ async function main() {
       enabled: DEFAULT_FUZZ_DURATION_ENABLED,
       minTicks: DEFAULT_FUZZ_DURATION_MIN,
       maxTicks: DEFAULT_FUZZ_DURATION_MAX,
+    },
+    sniper: {
+      enabled: DEFAULT_SNIPER_ENABLED,
+      lossThreshold: DEFAULT_SNIPER_LOSS_THRESHOLD,
+      martingaleEnabled: DEFAULT_SNIPER_MARTINGALE_ENABLED,
     },
   };
 

@@ -50,6 +50,8 @@ export function helpText(): string {
     '    /symbol /stake /duration /sensitivity /minstrength /maxconcurrent /dryrun',
     '    /adaptive /cooldown',
     '    /martingale (alias /mg) — see /mg help',
+    '    /rotate /pool /fuzzduration',
+    '    /sniper — simulate trades, fire real only after N sim losses',
     '    /clear /help /quit',
     '    (Tab completes, up/down for history and menu nav, Ctrl+C quits)',
     '',
