@@ -22,6 +22,9 @@ import {
   DEFAULT_FUZZ_DURATION_ENABLED,
   DEFAULT_FUZZ_DURATION_MIN,
   DEFAULT_FUZZ_DURATION_MAX,
+  DEFAULT_SNIPER_ENABLED,
+  DEFAULT_SNIPER_LOSS_THRESHOLD,
+  DEFAULT_SNIPER_MARTINGALE_ENABLED,
 } from '../constants/api';
 import { emptySession, updateSession } from '../trading/session';
 import type { TraderConfig } from '../trading/trader';
@@ -61,6 +64,11 @@ const placeholderConfig: TraderConfig = {
     minTicks: DEFAULT_FUZZ_DURATION_MIN,
     maxTicks: DEFAULT_FUZZ_DURATION_MAX,
   },
+  sniper: {
+    enabled: DEFAULT_SNIPER_ENABLED,
+    lossThreshold: DEFAULT_SNIPER_LOSS_THRESHOLD,
+    martingaleEnabled: DEFAULT_SNIPER_MARTINGALE_ENABLED,
+  },
 };
 
 export interface MartingaleRuntime {
@@ -75,6 +83,24 @@ const emptyMartingale = (): MartingaleRuntime => ({
   consecLosses: 0,
   nextStake: 0,
   armed: false,
+});
+
+export interface SniperRuntime {
+  consecLosses: number;
+  armed: boolean;
+  simTrades: number;
+  simWins: number;
+  simLosses: number;
+  realTrades: number;
+}
+
+const emptySniper = (): SniperRuntime => ({
+  consecLosses: 0,
+  armed: false,
+  simTrades: 0,
+  simWins: 0,
+  simLosses: 0,
+  realTrades: 0,
 });
 
 export interface BotState {
@@ -97,6 +123,7 @@ export interface BotState {
   session: SessionStats;
 
   martingale: MartingaleRuntime;
+  sniper: SniperRuntime;
 
   menuStack: MenuDefinition[];
 
@@ -114,8 +141,12 @@ export interface BotState {
   addOpenTrade: (t: OpenTrade) => void;
   updateOpenTrade: (contractId: number, patch: Partial<OpenTrade>) => void;
   closeTrade: (contractId: number, trade: ClosedTrade) => void;
+  // Remove an open trade without touching session P&L or balance. Used by
+  // sniper sim trades, which must not leak into real account stats.
+  removeOpenTrade: (contractId: number) => void;
 
   updateMartingale: (patch: Partial<MartingaleRuntime>) => void;
+  updateSniper: (patch: Partial<SniperRuntime>) => void;
 
   pushMenu: (menu: MenuDefinition) => void;
   replaceTopMenu: (menu: MenuDefinition) => void;
@@ -147,6 +178,7 @@ export const useStore = create<BotState>((set) => ({
   session: emptySession(),
 
   martingale: emptyMartingale(),
+  sniper: emptySniper(),
 
   menuStack: [],
 
@@ -186,6 +218,11 @@ export const useStore = create<BotState>((set) => ({
         : null,
     })),
 
+  removeOpenTrade: (contractId) =>
+    set((st) => ({
+      openTrades: st.openTrades.filter((t) => t.contractId !== contractId),
+    })),
+
   append: (kind, text) =>
     set((st) => {
       const line: TranscriptLine = { id: ++transcriptSeq, ts: Date.now(), kind, text };
@@ -198,6 +235,8 @@ export const useStore = create<BotState>((set) => ({
 
   updateMartingale: (patch) =>
     set((st) => ({ martingale: { ...st.martingale, ...patch } })),
+
+  updateSniper: (patch) => set((st) => ({ sniper: { ...st.sniper, ...patch } })),
 
   pushMenu: (menu) => set((st) => ({ menuStack: [...st.menuStack, menu] })),
   replaceTopMenu: (menu) =>
@@ -227,5 +266,6 @@ export const useStore = create<BotState>((set) => ({
       openTrades: [],
       session: emptySession(),
       martingale: emptyMartingale(),
+      sniper: emptySniper(),
     }),
 }));

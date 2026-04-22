@@ -9,6 +9,7 @@ import { dryRunCommand } from './commands/dryrun';
 import { martingaleCommand } from './commands/martingale';
 import { rotateCommand, poolCommand } from './commands/rotate';
 import { fuzzDurationCommand } from './commands/fuzz';
+import { sniperCommand } from './commands/sniper';
 
 export type { Command, CommandContext } from './types';
 
@@ -58,6 +59,7 @@ export const COMMANDS: Command[] = [
   rotateCommand,
   poolCommand,
   fuzzDurationCommand,
+  sniperCommand,
   clearCommand,
   helpCommand,
   quitCommand,

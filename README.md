@@ -41,6 +41,7 @@ The project is a research tool, not an alpha factory. It exists to make short ho
 - **Multi symbol rotation** using Fisher Yates shuffled permutations, with pre warmed engines per pool member
 - **Fuzz duration** sampling tick hold times uniformly from `[min, max]`
 - **Classic martingale** with arm after, step cap, stop loss, take profit, and on cap policy
+- **Sniper mode** simulates trades off the live tick stream and fires a real buy only after N consecutive sim losses, with an independent martingale toggle
 - **Dry run mode** driven by live ticks, no `buy` calls sent
 - **Session rollover** transparently refreshes the Deriv OTP before the 1h cap
 - **Reactive reconnect** with exponential backoff on unexpected drops
@@ -251,6 +252,7 @@ Typed into the REPL. `/` triggers the autocomplete menu. `Tab` completes, `Enter
 | `/rotate [on\|off\|status]` | Multi symbol rotation. |
 | `/pool [list\|add <sym>\|remove <sym>\|clear\|reset\|refresh]` | Manage rotation pool. |
 | `/fuzzduration [on\|off\|<min> <max>]` | Per trade uniform duration. |
+| `/sniper [on\|off\|status\|losses <n>\|mg <on\|off>\|reset]` | Sim-only trades until N losses, then one real fire. No args opens a menu. |
 | `/martingale ...` | See martingale section. |
 | `/account` | Print account id and balance. |
 | `/clear`, `/help [cmd]`, `/quit` | Utility. |
@@ -293,6 +295,52 @@ Purpose: break deterministic tick hold patterns that adversarial pricing can fit
 
 ---
 
+## Sniper mode
+
+Sniper mode observes signals **without placing real trades** until a configurable losing streak is reached, then promotes the next signal to a live buy. It is a conservative filter layered on top of the scorer: the idea is that a run of sim losses suggests the market is chopping against the current strategy, and a probe is more interesting after that run than after a healthy streak.
+
+```mermaid
+flowchart LR
+  SIG[Signal fires] --> GATE{sniper on?}
+  GATE -- no --> REAL1[placeTrade real]
+  GATE -- yes --> ARM{streak &ge; threshold?}
+  ARM -- no --> SIM[placeSim<br/>resolve off tick stream]
+  SIM --> RES{sim won?}
+  RES -- yes --> CLR[streak = 0]
+  RES -- no --> INC[streak += 1]
+  ARM -- yes --> REAL2[placeTrade real<br/>SNIPER FIRE]
+  REAL2 --> CLR
+```
+
+**Rules:**
+
+- Sim trades use base stake, a fake negative contract id, and resolve via `setTimeout(duration · 1000ms)` by comparing the current store tick to the entry spot. They never hit the Deriv account and do not touch session P&L or balance.
+- Sniper owns the symbol while enabled. Rotation is skipped (a warning is logged if both are on) so the streak stays on a single market.
+- The streak resets on sim win, after a real promotion, and when sniper is toggled off.
+- Sniper has its **own** martingale switch (`/sniper mg on|off`). When off, the global martingale multiplier is bypassed for the promoted trade, but session stop loss / take profit guards still apply.
+
+**Slash command:**
+
+```bash
+/sniper                 # open the toggle / threshold / mg menu
+/sniper on              # enable with current threshold
+/sniper losses 5        # next real fire after 5 consecutive sim losses
+/sniper mg on           # scale the promoted real stake via martingale
+/sniper status          # streak, sim W/L, real count
+/sniper reset           # clear streak and counters
+/sniper off
+```
+
+**Status line (example):**
+
+```text
+sniper: on · threshold 5 · streak 3/5 · mg off · sim 12W/18L · real 2
+```
+
+Defaults live in `src/constants/api.ts` (`DEFAULT_SNIPER_*`). Sniper is REPL-only at the moment — no CLI flag or env var wiring yet.
+
+---
+
 ## Martingale
 
 Loss recovery stake scaling. Off by default in runtime behavior unless the arm condition is met.
@@ -322,6 +370,10 @@ HH:MM:SS  TRADE-OPEN  id=12345, sym=1HZ100V, type=CALL, stake=0.35, dur=5
 HH:MM:SS  TRADE-CLOSE id=12345, profit=+0.33, win=true
 HH:MM:SS  MG          step=0, stake=0.35  (reset on win)
 HH:MM:SS  ROTATE      1HZ100V -> R_75
+HH:MM:SS  TRADE-OPEN  SIM CALL 1HZ100V stake=0.35 dur=5t @ 1234.567 · streak 3/5
+HH:MM:SS  TRADE-CLOSE SIM LOSS CALL -0.35 (entry=1234.567 exit=1234.480)
+HH:MM:SS  INFO        sniper armed (5/5) · promoting to real
+HH:MM:SS  TRADE-OPEN  CALL 1HZ100V stake=0.35 payout=0.68 id=98765 · SNIPER FIRE
 ```
 
 Bounded at `MAX_TRANSCRIPT = 400` rows, visible tail is 30.
@@ -391,6 +443,28 @@ No linter or formatter is configured. `tsconfig` runs strict. Tests use `bun tes
 - [ ] Persistent session stats across runs
 - [ ] Pluggable scoring strategies
 - [ ] Optional remote web dashboard mirroring the store
+- [ ] CLI flag and env var wiring for `/sniper` session defaults
+
+---
+
+## Changelog
+
+The [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format, loosely. Versions follow [SemVer](https://semver.org/). Add a new section to the top when cutting a release, and keep the `Unreleased` block as the working draft.
+
+### Unreleased
+
+### 0.2.0
+
+- **Added** sniper mode: simulate trades off the tick stream until N consecutive sim losses, then promote the next signal to a real buy. Ships with `/sniper`, a selection submenu, `SniperConfig` (`enabled`, `lossThreshold`, `martingaleEnabled`), and a `SniperRuntime` block in the store.
+- **Added** sniper-scoped martingale switch: `/sniper mg on|off` toggles stake scaling for the promoted real trade independently of the global `/mg` mode while session stop-loss / take-profit still apply.
+- **Added** `sniperPhase` (`'sim' | 'real'`) on `OpenTrade` and `ClosedTrade`, plus `SIM` / `SNIPER FIRE` tags in the transcript.
+- **Changed** rotation: automatically disabled while sniper is on, with a warning if both are enabled simultaneously. Keeps the sim streak bound to a single market.
+- **Changed** `/status` now prints a sniper summary (streak, sim W/L, real fired, mg on/off) when sniper mode is enabled.
+- **Changed** `BotController` gained `resetSniper()` for the `/sniper reset` path; `Trader.resetSniperRuntime()` clears both the internal streak and the store counters.
+
+### 0.1.0
+
+- Initial public surface: adaptive threshold engine (Welford + EWMA + CUSUM + Bollinger squeeze), 1–3 strength scoring, Ink REPL with slash commands and nested menus, multi-symbol rotation with parallel pre-warming, fuzz duration, classic martingale with session guards, dry-run mode, reactive reconnect, OTP session rollover.
 
 ---
 

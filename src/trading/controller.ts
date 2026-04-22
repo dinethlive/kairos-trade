@@ -63,4 +63,19 @@ export class BotController {
       armed: false,
     });
   }
+
+  resetSniper(): void {
+    if (this.trader) {
+      this.trader.resetSniperRuntime();
+      return;
+    }
+    useStore.getState().updateSniper({
+      consecLosses: 0,
+      armed: false,
+      simTrades: 0,
+      simWins: 0,
+      simLosses: 0,
+      realTrades: 0,
+    });
+  }
 }

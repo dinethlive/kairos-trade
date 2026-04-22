@@ -65,3 +65,11 @@ export const DEFAULT_MG_MAX_STEPS = 8;
 export const DEFAULT_MG_ARM_AFTER = 2;
 export const DEFAULT_MG_ON_CAP = 'reset' as const;
 export const DEFAULT_MG_STOP_LOSS = 200;
+
+// Sniper mode: simulate trades off the tick stream until N consecutive sim
+// losses accumulate, then promote the next signal to a real buy. Rotation is
+// disabled while sniper is on. Its own martingale toggle decides whether the
+// promoted trade scales stake.
+export const DEFAULT_SNIPER_ENABLED = false;
+export const DEFAULT_SNIPER_LOSS_THRESHOLD = 5;
+export const DEFAULT_SNIPER_MARTINGALE_ENABLED = false;

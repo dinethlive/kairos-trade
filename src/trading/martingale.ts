@@ -28,8 +28,11 @@ export class MartingaleController {
 
   nextStake(): number {
     const cfg = this.deps.getConfig();
-    const mg = cfg.martingale;
     const base = roundStake(cfg.stake);
+    // Sniper mode owns its own martingale switch; when it's off, skip stake
+    // scaling regardless of the global --mg setting.
+    if (cfg.sniper.enabled && !cfg.sniper.martingaleEnabled) return base;
+    const mg = cfg.martingale;
     if (mg.mode === 'off' || this.mgStep === 0) return base;
     const scaled = cfg.stake * Math.pow(mg.multiplier, this.mgStep);
     return Number.isFinite(scaled) ? roundStake(scaled) : base;
@@ -79,6 +82,16 @@ export class MartingaleController {
     const cfg = this.deps.getConfig();
     const mg = cfg.martingale;
     const store = useStore.getState();
+
+    // Sniper-with-mg-off: still enforce session stop-loss/take-profit but skip
+    // all step/streak state changes so the sniper cycle stays clean.
+    if (cfg.sniper.enabled && !cfg.sniper.martingaleEnabled) {
+      this.mgStep = 0;
+      this.mgConsecLosses = 0;
+      this.pushRuntime();
+      this.checkSessionGuards();
+      return;
+    }
 
     if (mg.mode === 'off') {
       this.mgStep = 0;

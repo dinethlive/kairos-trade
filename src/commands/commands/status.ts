@@ -49,6 +49,13 @@ export const statusCommand: Command = {
         `mg: ${c.martingale.mode} · ${rt.armed ? `armed step ${rt.step}/${c.martingale.maxSteps}` : `dormant ${rt.consecLosses}/${c.martingale.armAfterLosses}`} · next ${rt.nextStake.toFixed(2)} · mult=${c.martingale.multiplier} on-cap=${c.martingale.onCap}`,
       );
     }
+    if (c.sniper.enabled) {
+      const sn = s.sniper;
+      ctx.append(
+        'info',
+        `sniper: on · threshold ${c.sniper.lossThreshold} · streak ${sn.consecLosses}/${c.sniper.lossThreshold}${sn.armed ? ' (armed — next real)' : ''} · mg ${c.sniper.martingaleEnabled ? 'on' : 'off'} · sim ${sn.simWins}W/${sn.simLosses}L · real ${sn.realTrades}`,
+      );
+    }
     if (s.openTrades.length > 0) {
       ctx.append('info', `open trades: ${s.openTrades.length}`);
     }
