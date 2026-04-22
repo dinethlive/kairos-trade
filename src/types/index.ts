@@ -58,6 +58,11 @@ export interface Account {
 
 export type TradeContractType = 'CALL' | 'PUT';
 
+// In sniper mode, 'sim' trades are never placed on the account — they're
+// tick-stream simulations used to decide when to promote. 'real' marks a
+// promoted trade that went through the normal buy path.
+export type SniperPhase = 'sim' | 'real';
+
 export interface OpenTrade {
   contractId: number;
   type: TradeContractType;
@@ -72,6 +77,7 @@ export interface OpenTrade {
   purchasedAt: number;
   shortcode?: string;
   signalId: string;
+  sniperPhase?: SniperPhase;
 }
 
 export interface ClosedTrade {
@@ -87,6 +93,7 @@ export interface ClosedTrade {
   exitSpot?: number;
   closedAt: number;
   signalId: string;
+  sniperPhase?: SniperPhase;
 }
 
 export type TranscriptKind =

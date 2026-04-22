@@ -25,6 +25,12 @@ export interface FuzzDurationConfig {
   maxTicks: number;
 }
 
+export interface SniperConfig {
+  enabled: boolean;
+  lossThreshold: number;
+  martingaleEnabled: boolean;
+}
+
 export interface TraderConfig {
   token: string;
   appId: string;
@@ -41,4 +47,5 @@ export interface TraderConfig {
   martingale: MartingaleConfig;
   rotation: RotationConfig;
   fuzzDuration: FuzzDurationConfig;
+  sniper: SniperConfig;
 }
